@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Street Brawler</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0a0a1a;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      min-height: 100vh;
+      font-family: 'Courier New', monospace; color: #fff;
+    }
+    h1 {
+      color: #ff9f43;
+      text-shadow: 0 0 15px #ff9f43;
+      font-size: 1.8rem; letter-spacing: 4px;
+      margin-bottom: 12px;
+    }
+    canvas {
+      border: 2px solid #ff9f43;
+      box-shadow: 0 0 25px #ff9f43;
+      display: block; max-width: 100%;
+    }
+    .info { color: #666; font-size: 0.78rem; margin-top: 8px; letter-spacing: 1px; }
+    .back {
+      margin-top: 14px; padding: 10px 24px;
+      background: transparent; border: 2px solid #ff9f43;
+      color: #ff9f43; font-family: 'Courier New', monospace;
+      font-size: 0.9rem; letter-spacing: 2px;
+      cursor: pointer; text-decoration: none; transition: all 0.2s;
+    }
+    .back:hover { background: #ff9f43; color: #000; }
+  </style>
+</head>
+<body>
+  <h1>🥊 STREET BRAWLER</h1>
+  <canvas id="c" width="800" height="420"></canvas>
+  <p class="info">A/D = Move | W = Jump | J = Punch | K = Kick | L = Block</p>
+  <a href="index.html" class="back">← TRUE GUY'S ARCADE</a>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = 800, H = 420;
+const FLOOR = 350;
+
+let state = 'start';
+let playerWins = 0, aiWins = 0;
+let roundMsg = '';
+let roundMsgTimer = 0;
+let fightTimer = 99;
+let fightTimerSub = 0;
+let hitEffects = [];
+let frame = 0;
+
+const keys = {};
+document.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (['KeyJ','KeyK','KeyL','KeyW','Space'].includes(e.code)) e.preventDefault();
+});
+document.addEventListener('keyup', e => { keys[e.code] = false; });
+
+function makeChar(x, facing, isPlayer, colors) {
+  return {
+    x, y: FLOOR - 100, w: 44, h: 100,
+    vy: 0, onGround: true, facing,
+    hp: 100, maxHp: 100,
+    state: 'idle', // idle, walk, jump, punch, kick, block, hit, dead
+    stateTimer: 0,
+    attackCooldown: 0,
+    isPlayer, colors,
+    legFrame: 0, legTimer: 0,
+    combo: 0, comboTimer: 0,
+    hitFlash: 0,
+  };
+}
+
+let player = makeChar(140, 1, true, { body: '#2980b9', skin: '#FDBCB4', hair: '#2c3e50', legs: '#1a252f' });
+let ai = makeChar(600, -1, false, { body: '#c0392b', skin: '#FDBCB4', hair: '#922b21', legs: '#7b241c' });
+
+function resetRound() {
+  player = makeChar(140, 1, true, { body: '#2980b9', skin: '#FDBCB4', hair: '#2c3e50', legs: '#1a252f' });
+  ai = makeChar(600, -1, false, { body: '#c0392b', skin: '#FDBCB4', hair: '#922b21', legs: '#7b241c' });
+  fightTimer = 99; fightTimerSub = 0;
+  hitEffects = [];
+}
+
+function resetGame() {
+  playerWins = 0; aiWins = 0;
+  resetRound();
+  state = 'fight'; roundMsg = 'ROUND 1'; roundMsgTimer = 90;
+}
+
+// --- ATTACK ---
+function doAttack(attacker, defender, type) {
+  const reach = type === 'kick' ? 95 : 75;
+  const dx = (defender.x + defender.w / 2) - (attacker.x + attacker.w / 2);
+  const dist = Math.abs(dx);
+  if (dist > reach) return false;
+  if (Math.sign(dx) !== attacker.facing) return false;
+
+  let dmg = type === 'kick' ? 14 : 9;
+  if (defender.state === 'block') dmg = Math.floor(dmg * 0.15);
+
+  defender.hp = Math.max(0, defender.hp - dmg);
+  defender.hitFlash = 8;
+
+  if (defender.state !== 'block') {
+    defender.state = 'hit'; defender.stateTimer = 22;
+  }
+
+  const hx = attacker.facing > 0 ? attacker.x + attacker.w + 10 : attacker.x - 20;
+  hitEffects.push({
+    x: hx, y: attacker.y + 30,
+    text: type === 'kick' ? 'KICK!' : 'POW!',
+    color: type === 'kick' ? '#ff9f43' : '#ff4444',
+    life: 1
+  });
+
+  if (defender.state !== 'block') {
+    attacker.combo++;
+    attacker.comboTimer = 80;
+  }
+  return true;
+}
+
+// --- AI BRAIN ---
+let aiThinkTimer = 0;
+let aiAction = 'idle';
+let aiActionTimer = 0;
+
+function updateAI() {
+  const dx = player.x - ai.x;
+  const dist = Math.abs(dx);
+
+  ai.facing = dx > 0 ? 1 : -1;
+
+  if (ai.state === 'hit' || ai.state === 'dead') return;
+  if (ai.attackCooldown > 0) { ai.attackCooldown--; return; }
+
+  aiThinkTimer--;
+  if (aiThinkTimer <= 0) {
+    aiThinkTimer = 18 + Math.floor(Math.random() * 20);
+    const roll = Math.random();
+
+    if (dist > 200) {
+      aiAction = 'approach';
+    } else if (dist > 80) {
+      if (roll < 0.5) aiAction = 'approach';
+      else if (roll < 0.7) aiAction = 'jump';
+      else aiAction = 'idle';
+    } else {
+      if (roll < 0.35) aiAction = 'punch';
+      else if (roll < 0.55) aiAction = 'kick';
+      else if (roll < 0.7) aiAction = 'block';
+      else if (roll < 0.8) aiAction = 'retreat';
+      else if (roll < 0.9) aiAction = 'jump';
+      else aiAction = 'idle';
+    }
+    aiActionTimer = 20 + Math.floor(Math.random() * 25);
+  }
+  aiActionTimer--;
+
+  switch (aiAction) {
+    case 'approach':
+      ai.x += ai.facing * 2.8;
+      ai.state = 'walk';
+      break;
+    case 'retreat':
+      ai.x -= ai.facing * 2.5;
+      ai.state = 'walk';
+      break;
+    case 'jump':
+      if (ai.onGround) { ai.vy = -17; ai.onGround = false; ai.state = 'jump'; }
+      break;
+    case 'punch':
+      if (dist < 80) {
+        ai.state = 'punch'; ai.stateTimer = 18;
+        doAttack(ai, player, 'punch');
+        ai.attackCooldown = 30;
+        aiAction = 'idle';
+      } else {
+        ai.x += ai.facing * 2;
+      }
+      break;
+    case 'kick':
+      if (dist < 100) {
+        ai.state = 'kick'; ai.stateTimer = 26;
+        doAttack(ai, player, 'kick');
+        ai.attackCooldown = 40;
+        aiAction = 'idle';
+      } else {
+        ai.x += ai.facing * 2;
+      }
+      break;
+    case 'block':
+      ai.state = 'block';
+      break;
+  }
+}
+
+function updateChar(c) {
+  // Gravity
+  if (!c.onGround) { c.vy += 0.9; c.y += c.vy; }
+  if (c.y >= FLOOR - c.h) { c.y = FLOOR - c.h; c.vy = 0; c.onGround = true; if (c.state === 'jump') c.state = 'idle'; }
+
+  // Bounds
+  c.x = Math.max(10, Math.min(W - c.w - 10, c.x));
+
+  // State timer
+  if (c.stateTimer > 0) { c.stateTimer--; if (c.stateTimer === 0 && (c.state === 'punch' || c.state === 'kick' || c.state === 'hit')) c.state = 'idle'; }
+
+  // Leg animation
+  if (c.state === 'walk') { c.legTimer++; if (c.legTimer > 7) { c.legFrame = 1 - c.legFrame; c.legTimer = 0; } }
+  else c.legFrame = 0;
+
+  // Hit flash
+  if (c.hitFlash > 0) c.hitFlash--;
+
+  // Combo timer
+  if (c.comboTimer > 0) { c.comboTimer--; if (c.comboTimer === 0) c.combo = 0; }
+}
+
+function handlePlayerInput() {
+  if (player.state === 'hit' || player.state === 'dead') return;
+
+  const prevState = player.state;
+
+  if (keys['KeyL']) {
+    player.state = 'block';
+  } else if (player.stateTimer === 0) {
+    if ((keys['KeyA'] || keys['ArrowLeft'])) {
+      player.x -= 4; player.facing = -1;
+      if (player.state !== 'jump') player.state = 'walk';
+    } else if ((keys['KeyD'] || keys['ArrowRight'])) {
+      player.x += 4; player.facing = 1;
+      if (player.state !== 'jump') player.state = 'walk';
+    } else if (player.state === 'walk') {
+      player.state = 'idle';
+    }
+
+    if ((keys['KeyW'] || keys['ArrowUp']) && player.onGround) {
+      player.vy = -17; player.onGround = false; player.state = 'jump';
+    }
+
+    if (keys['KeyJ'] && player.attackCooldown === 0 && player.state !== 'jump') {
+      player.state = 'punch'; player.stateTimer = 18;
+      if (doAttack(player, ai, 'punch')) {}
+      player.attackCooldown = 25;
+    }
+    if (keys['KeyK'] && player.attackCooldown === 0 && player.state !== 'jump') {
+      player.state = 'kick'; player.stateTimer = 28;
+      if (doAttack(player, ai, 'kick')) {}
+      player.attackCooldown = 35;
+    }
+  }
+
+  if (player.attackCooldown > 0) player.attackCooldown--;
+
+  // Face opponent
+  if (player.state !== 'punch' && player.state !== 'kick') {
+    const dx = ai.x - player.x;
+    if (!keys['KeyA'] && !keys['ArrowLeft'] && !keys['KeyD'] && !keys['ArrowRight'])
+      player.facing = dx > 0 ? 1 : -1;
+  }
+}
+
+function drawChar(c) {
+  const px = c.x, py = c.y;
+  const f = c.facing;
+  const leg = c.legFrame;
+  const isBlocking = c.state === 'block';
+  const isPunching = c.state === 'punch';
+  const isKicking = c.state === 'kick';
+
+  if (c.hitFlash % 2 === 1) {
+    ctx.globalAlpha = 0.4;
+  }
+
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.beginPath(); ctx.ellipse(px + c.w / 2, FLOOR + 2, 22, 6, 0, 0, Math.PI * 2); ctx.fill();
+
+  // Legs
+  ctx.fillStyle = c.colors.legs;
+  if (isBlocking) {
+    ctx.fillRect(px + 8, py + 66, 12, 34);
+    ctx.fillRect(px + 22, py + 66, 12, 30);
+  } else {
+    if (leg === 0) {
+      ctx.fillRect(px + 8, py + 66, 12, 36);
+      ctx.fillRect(px + 22, py + 66, 12, 28);
+    } else {
+      ctx.fillRect(px + 8, py + 66, 12, 28);
+      ctx.fillRect(px + 22, py + 66, 12, 36);
+    }
+  }
+  // Shoes
+  ctx.fillStyle = '#222';
+  ctx.fillRect(px + 5, py + 96, 16, 6);
+  ctx.fillRect(px + 20, py + 96, 16, 6);
+
+  // Body
+  ctx.fillStyle = c.colors.body;
+  ctx.fillRect(px + 4, py + 28, c.w - 8, 42);
+  if (isBlocking) {
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.fillRect(px + 4, py + 28, c.w - 8, 42);
+  }
+
+  // Head
+  ctx.fillStyle = c.colors.skin;
+  ctx.fillRect(px + 8, py, 28, 30);
+
+  // Hair
+  ctx.fillStyle = c.colors.hair;
+  ctx.fillRect(px + 8, py - 5, 28, 10);
+
+  // Eyes
+  ctx.fillStyle = '#fff';
+  const eyeOff = f > 0 ? 0 : 2;
+  ctx.fillRect(px + 11 + eyeOff, py + 7, 7, 7);
+  ctx.fillRect(px + 23 + eyeOff, py + 7, 7, 7);
+  ctx.fillStyle = '#222';
+  ctx.fillRect(px + 13 + eyeOff, py + 9, 4, 4);
+  ctx.fillRect(px + 25 + eyeOff, py + 9, 4, 4);
+
+  // Mouth (angry)
+  ctx.fillStyle = '#cc3300';
+  ctx.fillRect(px + 15, py + 21, 14, 4);
+
+  // Arms
+  ctx.fillStyle = c.colors.body;
+  if (isBlocking) {
+    ctx.fillRect(px - 6, py + 26, 12, 20);
+    ctx.fillRect(px + c.w - 6, py + 26, 12, 20);
+    ctx.fillStyle = c.colors.skin;
+    ctx.fillRect(px - 8, py + 22, 14, 12);
+    ctx.fillRect(px + c.w - 6, py + 22, 14, 12);
+  } else if (isPunching) {
+    const punchExt = f > 0 ? 30 : -30;
+    ctx.fillRect(px + (f > 0 ? c.w - 2 : -14), py + 30, 20, 10);
+    ctx.fillStyle = c.colors.skin;
+    ctx.fillRect(px + (f > 0 ? c.w + 14 : -22), py + 28, 14, 12);
+    // Back arm
+    ctx.fillStyle = c.colors.body;
+    ctx.fillRect(px + (f > 0 ? -14 : c.w - 4), py + 36, 16, 10);
+  } else if (isKicking) {
+    // Arms out for balance
+    ctx.fillRect(px - 14, py + 30, 18, 9);
+    ctx.fillRect(px + c.w - 4, py + 30, 18, 9);
+    // Kick leg extended
+    ctx.fillStyle = c.colors.legs;
+    ctx.fillRect(px + (f > 0 ? c.w - 4 : -28), py + 62, 32, 14);
+    ctx.fillStyle = '#222';
+    ctx.fillRect(px + (f > 0 ? c.w + 24 : -34), py + 62, 14, 10);
+  } else {
+    ctx.fillRect(px - 10, py + 30, 14, 28);
+    ctx.fillRect(px + c.w - 4, py + 30, 14, 28);
+  }
+
+  ctx.globalAlpha = 1;
+}
+
+function drawHPBar(c, labelX, alignRight) {
+  const barW = 280, barH = 22, barY = 15;
+  const bx = alignRight ? W - barW - 20 : 20;
+  const label = alignRight ? 'CPU' : 'YOU';
+
+  ctx.fillStyle = '#333';
+  ctx.fillRect(bx, barY, barW, barH);
+
+  const hpRatio = c.hp / c.maxHp;
+  const color = hpRatio > 0.5 ? '#4CAF50' : hpRatio > 0.25 ? '#ff9f43' : '#ff4444';
+  const filledW = Math.floor(barW * hpRatio);
+  const barStartX = alignRight ? bx + barW - filledW : bx;
+  ctx.fillStyle = color;
+  ctx.fillRect(barStartX, barY, filledW, barH);
+
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(bx, barY, barW, barH);
+
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 14px Courier New';
+  ctx.textAlign = alignRight ? 'right' : 'left';
+  ctx.fillText(label + ' ' + c.hp + ' HP', alignRight ? bx + barW - 5 : bx + 5, barY + 16);
+  ctx.textAlign = 'left';
+}
+
+function drawBackground() {
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#1a0a2e');
+  bg.addColorStop(1, '#0a0a1a');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // City lights backdrop
+  for (let i = 0; i < 12; i++) {
+    const bx = 40 + i * 60, bh = 80 + (i % 3) * 60;
+    ctx.fillStyle = `rgba(${20 + i * 5},${20 + i * 5},${40 + i * 8},0.8)`;
+    ctx.fillRect(bx, FLOOR - bh - 20, 45, bh);
+    // Windows
+    ctx.fillStyle = 'rgba(255,255,150,0.4)';
+    for (let wy = 0; wy < bh - 15; wy += 18) {
+      for (let wx = 4; wx < 40; wx += 14) {
+        if (Math.random() > 0.3) ctx.fillRect(bx + wx, FLOOR - bh + wy - 10, 8, 10);
+      }
+    }
+  }
+
+  // Floor
+  const floorGrad = ctx.createLinearGradient(0, FLOOR, 0, H);
+  floorGrad.addColorStop(0, '#2c2c3e');
+  floorGrad.addColorStop(1, '#1a1a2a');
+  ctx.fillStyle = floorGrad;
+  ctx.fillRect(0, FLOOR, W, H - FLOOR);
+
+  // Floor lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  ctx.lineWidth = 1;
+  for (let i = 1; i < 8; i++) {
+    ctx.beginPath();
+    ctx.moveTo(W * i / 8, FLOOR);
+    ctx.lineTo(W * i / 8, H);
+    ctx.stroke();
+  }
+  ctx.fillStyle = 'rgba(255,255,255,0.15)';
+  ctx.fillRect(0, FLOOR, W, 3);
+}
+
+function drawCombo(c, align) {
+  if (c.combo < 2) return;
+  ctx.textAlign = align;
+  ctx.fillStyle = '#ffff00';
+  ctx.font = `bold ${14 + c.combo * 2}px Courier New`;
+  const cx = align === 'left' ? 20 : W - 20;
+  ctx.fillText(c.combo + 'x COMBO!', cx, 60);
+  ctx.textAlign = 'left';
+}
+
+function updateRound() {
+  frame++;
+  if (roundMsgTimer > 0) { roundMsgTimer--; return; }
+
+  handlePlayerInput();
+  updateAI();
+  updateChar(player);
+  updateChar(ai);
+
+  // Hit effects
+  for (const h of hitEffects) h.life -= 0.05;
+  hitEffects = hitEffects.filter(h => h.life > 0);
+
+  // Timer
+  fightTimerSub++;
+  if (fightTimerSub >= 60) { fightTimerSub = 0; fightTimer--; }
+  if (fightTimer <= 0) {
+    endRound(player.hp >= ai.hp ? 'player' : 'ai');
+  }
+
+  // Check KO
+  if (player.hp <= 0) endRound('ai');
+  if (ai.hp <= 0) endRound('player');
+}
+
+function endRound(winner) {
+  if (winner === 'player') {
+    playerWins++;
+    roundMsg = 'YOU WIN!';
+  } else {
+    aiWins++;
+    roundMsg = 'KO! CPU WINS';
+  }
+  roundMsgTimer = 120;
+
+  if (playerWins >= 2 || aiWins >= 2) {
+    setTimeout(() => {
+      state = winner === 'player' ? 'win' : 'lose';
+    }, 2100);
+  } else {
+    setTimeout(() => {
+      resetRound();
+      roundMsg = 'ROUND ' + (playerWins + aiWins + 1);
+      roundMsgTimer = 90;
+    }, 2100);
+  }
+}
+
+function drawTimerAndWins() {
+  // Timer
+  ctx.fillStyle = fightTimer <= 10 ? '#ff4444' : '#fff';
+  ctx.font = 'bold 28px Courier New';
+  ctx.textAlign = 'center';
+  ctx.fillText(fightTimer, W / 2, 40);
+  ctx.textAlign = 'left';
+
+  // Win stars
+  for (let i = 0; i < playerWins; i++) {
+    ctx.fillStyle = '#ffff00'; ctx.font = '18px Courier New';
+    ctx.fillText('★', 310 - i * 22, 40);
+  }
+  for (let i = 0; i < aiWins; i++) {
+    ctx.fillStyle = '#ff4444'; ctx.font = '18px Courier New';
+    ctx.fillText('★', W - 310 + i * 22, 40);
+  }
+}
+
+function drawHitEffects() {
+  for (const h of hitEffects) {
+    ctx.globalAlpha = h.life;
+    ctx.fillStyle = h.color;
+    ctx.font = 'bold 24px Courier New';
+    ctx.textAlign = 'center';
+    ctx.fillText(h.text, h.x, h.y - (1 - h.life) * 30);
+  }
+  ctx.globalAlpha = 1;
+  ctx.textAlign = 'left';
+}
+
+function drawOverlay(main, sub, color, sub2) {
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = color;
+  ctx.font = 'bold 54px Courier New';
+  ctx.fillText(main, W / 2, H / 2 - 30);
+  ctx.fillStyle = '#fff';
+  ctx.font = '24px Courier New';
+  ctx.fillText(sub, W / 2, H / 2 + 20);
+  if (sub2) { ctx.font = '16px Courier New'; ctx.fillStyle = '#aaa'; ctx.fillText(sub2, W / 2, H / 2 + 55); }
+  ctx.textAlign = 'left';
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  drawBackground();
+  drawChar(player);
+  drawChar(ai);
+  drawHitEffects();
+  drawHPBar(player, 20, false);
+  drawHPBar(ai, W - 300, true);
+  drawTimerAndWins();
+  drawCombo(player, 'left');
+  drawCombo(ai, 'right');
+
+  if (roundMsgTimer > 0) {
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ff9f43';
+    ctx.font = 'bold 52px Courier New';
+    ctx.fillText(roundMsg, W / 2, H / 2);
+    ctx.textAlign = 'left';
+  }
+
+  if (state === 'start') drawOverlay('STREET BRAWLER', 'Press SPACE to Fight!', '#ff9f43', 'A/D Move | W Jump | J Punch | K Kick | L Block');
+  if (state === 'win')   drawOverlay('VICTORY!', 'YOU WIN THE MATCH!', '#ffff00', 'Press SPACE to Play Again');
+  if (state === 'lose')  drawOverlay('DEFEATED', 'CPU WINS THE MATCH', '#ff4444', 'Press SPACE to Try Again');
+}
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') {
+    if (state === 'start') { state = 'fight'; resetGame(); }
+    else if (state === 'win' || state === 'lose') { state = 'fight'; resetGame(); }
+  }
+});
+
+function loop() {
+  if (state === 'fight') updateRound();
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>

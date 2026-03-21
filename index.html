@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>True Guy's Arcade</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0a0a1a; min-height: 100vh; font-family: 'Courier New', monospace; color: #fff; overflow-x: hidden; }
+    .scanlines { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px); pointer-events: none; z-index: 999; }
+    header { text-align: center; padding: 40px 20px 20px; }
+    .title { font-size: clamp(2rem, 6vw, 3.8rem); font-weight: bold; letter-spacing: 8px; color: #fff; text-shadow: 0 0 10px #ff00ff, 0 0 20px #ff00ff, 0 0 40px #ff00ff; animation: pulse 2s ease-in-out infinite; }
+    @keyframes pulse { 0%,100%{text-shadow:0 0 10px #ff00ff,0 0 20px #ff00ff,0 0 40px #ff00ff} 50%{text-shadow:0 0 20px #ff00ff,0 0 40px #ff00ff,0 0 80px #ff00ff} }
+    .subtitle { color: #00ffff; font-size: 1rem; letter-spacing: 4px; margin-top: 10px; text-shadow: 0 0 8px #00ffff; }
+    .insert-coin { color: #ffff00; font-size: 1.1rem; letter-spacing: 3px; margin-top: 15px; animation: blink 1s step-end infinite; text-shadow: 0 0 8px #ffff00; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+    .games-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 25px; max-width: 1200px; margin: 40px auto; padding: 0 20px; }
+    .game-card { background: linear-gradient(145deg, #0d0d2b, #1a0a3e); border: 2px solid #333; border-radius: 12px; padding: 25px; transition: all 0.3s ease; position: relative; overflow: hidden; }
+    .game-card:hover { transform: translateY(-6px); border-color: var(--accent); box-shadow: 0 0 25px var(--accent), 0 10px 40px rgba(0,0,0,0.5); }
+    .game-card .icon { font-size: 3.5rem; text-align: center; display: block; margin-bottom: 15px; filter: drop-shadow(0 0 8px var(--accent)); }
+    .game-card .name { font-size: 1.3rem; font-weight: bold; color: var(--accent); text-shadow: 0 0 8px var(--accent); letter-spacing: 2px; text-align: center; margin-bottom: 8px; }
+    .game-card .desc { color: #aaa; font-size: 0.85rem; line-height: 1.5; text-align: center; margin-bottom: 15px; }
+    .game-card .controls { background: rgba(255,255,255,0.05); border-radius: 8px; padding: 10px 12px; font-size: 0.78rem; color: #888; line-height: 1.7; margin-bottom: 18px; }
+    .game-card .controls span { color: #ccc; font-weight: bold; }
+    .play-btn { display: block; width: 100%; padding: 12px; background: var(--accent); color: #000; font-family: 'Courier New', monospace; font-size: 1rem; font-weight: bold; letter-spacing: 3px; text-decoration: none; text-align: center; border-radius: 6px; border: none; cursor: pointer; transition: all 0.2s; box-shadow: 0 0 15px var(--accent); }
+    .play-btn:hover { background: #fff; box-shadow: 0 0 30px var(--accent), 0 0 60px var(--accent); transform: scale(1.02); }
+    .badge { position: absolute; top: 12px; right: 12px; background: var(--accent); color: #000; font-size: 0.65rem; font-weight: bold; padding: 3px 8px; border-radius: 20px; letter-spacing: 1px; }
+    footer { text-align: center; padding: 30px 20px 50px; color: #444; font-size: 0.8rem; letter-spacing: 2px; }
+    footer p { margin: 4px 0; }
+  </style>
+</head>
+<body>
+  <div class="scanlines"></div>
+  <header>
+    <div class="title">TRUE GUY'S ARCADE</div>
+    <div class="subtitle">SELECT YOUR GAME</div>
+    <div class="insert-coin">— INSERT COIN TO PLAY —</div>
+  </header>
+
+  <div class="games-grid">
+
+    <div class="game-card" style="--accent: #ff6b6b;">
+      <div class="badge">RUN</div>
+      <span class="icon">&#127939;</span>
+      <div class="name">RUNNER ESCAPE</div>
+      <div class="desc">Run away from home! Jump over fences, trash cans, and bushes. One shot — if you hit something, you're caught!</div>
+      <div class="controls">
+        <span>SPACE / &#8593;</span> — Jump (one jump)<br>
+        <span>Click / Tap</span> — Also jumps<br>
+        <span>Speed</span> — Increases over time
+      </div>
+      <a href="runner.html" class="play-btn">&#9654; PLAY</a>
+    </div>
+
+    <div class="game-card" style="--accent: #ff9f43;">
+      <div class="badge">FIGHT</div>
+      <span class="icon">&#129354;</span>
+      <div class="name">STREET BRAWLER</div>
+      <div class="desc">Face off against a skilled opponent in a real street fight. Punch, kick, block and dodge — best of 3 rounds wins!</div>
+      <div class="controls">
+        <span>A / D</span> — Move Left / Right<br>
+        <span>W</span> — Jump<br>
+        <span>J</span> — Punch &nbsp;&nbsp; <span>K</span> — Kick<br>
+        <span>L</span> — Block
+      </div>
+      <a href="fighter.html" class="play-btn">&#9654; PLAY</a>
+    </div>
+
+    <div class="game-card" style="--accent: #ff9f43;">
+      <div class="badge">DRIVE</div>
+      <span class="icon">&#128663;</span>
+      <div class="name">ROAD DODGER</div>
+      <div class="desc">You're weaving through heavy traffic on a busy highway. Dodge oncoming cars, SUVs and trucks — one crash ends it all!</div>
+      <div class="controls">
+        <span>&#8592; &#8594;</span> — Change lanes<br>
+        <span>A / D</span> — Also changes lanes<br>
+        <span>Speed</span> — Increases as you go
+      </div>
+      <a href="carrace.html" class="play-btn">&#9654; PLAY</a>
+    </div>
+
+    <div class="game-card" style="--accent: #e67e22;">
+      <div class="badge">SPORT</div>
+      <span class="icon">&#127944;</span>
+      <div class="name">BASKETBALL</div>
+      <div class="desc">Step onto the court and drain as many baskets as you can in 60 seconds. Move to different spots and perfect your arc!</div>
+      <div class="controls">
+        <span>SPACE</span> — Hold to charge, release to shoot<br>
+        <span>A / D</span> — Move closer or further<br>
+        <span>Trajectory</span> — Preview shown while charging
+      </div>
+      <a href="basketball.html" class="play-btn">&#9654; PLAY</a>
+    </div>
+
+    <div class="game-card" style="--accent: #4CAF50;">
+      <div class="badge">RANGE</div>
+      <span class="icon">&#127919;</span>
+      <div class="name">SHOOTING RANGE</div>
+      <div class="desc">A real marksmanship challenge. Steady your aim against natural sway, fire 7 rounds at 3 targets across 3 distances.</div>
+      <div class="controls">
+        <span>MOUSE</span> — Aim<br>
+        <span>CLICK</span> — Fire<br>
+        <span>R</span> — Reload magazine<br>
+        <span>Score</span> — Based on ring accuracy
+      </div>
+      <a href="range.html" class="play-btn">&#9654; PLAY</a>
+    </div>
+
+    <div class="game-card" style="--accent: #ff6600;">
+      <div class="badge">3D</div>
+      <span class="icon">&#9876;</span>
+      <div class="name">RAID PROTOCOL</div>
+      <div class="desc">Robotic Raiders are falling from the sky. Fight through waves of mechs, drones, and heavy units. Reach extraction to survive!</div>
+      <div class="controls">
+        <span>WASD</span> — Move<br>
+        <span>MOUSE</span> — Aim &nbsp; <span>CLICK</span> — Shoot<br>
+        <span>R</span> — Reload<br>
+        <span style="color:#888;font-size:0.72em;">Requires internet (loads Three.js)</span>
+      </div>
+      <a href="raid.html" class="play-btn">&#9654; PLAY</a>
+    </div>
+
+  </div>
+
+  <footer>
+    <p>TRUE GUY'S ARCADE &mdash; 6 GAMES</p>
+    <p>BUILT WITH HTML5 CANVAS + THREE.JS</p>
+  </footer>
+</body>
+</html>

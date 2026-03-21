@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Runner Escape</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0a0a1a;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      min-height: 100vh;
+      font-family: 'Courier New', monospace; color: #fff;
+    }
+    h1 {
+      color: #ff6b6b;
+      text-shadow: 0 0 15px #ff6b6b;
+      font-size: 1.8rem; letter-spacing: 4px;
+      margin-bottom: 12px;
+    }
+    canvas {
+      border: 3px solid #ff6b6b;
+      box-shadow: 0 0 25px #ff6b6b;
+      display: block;
+      max-width: 100%;
+    }
+    .info { color: #888; font-size: 0.85rem; margin-top: 10px; letter-spacing: 2px; }
+    .back {
+      margin-top: 15px;
+      padding: 10px 24px;
+      background: transparent;
+      border: 2px solid #ff6b6b;
+      color: #ff6b6b;
+      font-family: 'Courier New', monospace;
+      font-size: 0.9rem; letter-spacing: 2px;
+      cursor: pointer; text-decoration: none;
+      transition: all 0.2s;
+    }
+    .back:hover { background: #ff6b6b; color: #000; }
+  </style>
+</head>
+<body>
+  <h1>🏃 RUNNER ESCAPE</h1>
+  <canvas id="c" width="800" height="300"></canvas>
+  <p class="info">SPACE / UP / TAP to jump</p>
+  <a href="index.html" class="back">← TRUE GUY'S ARCADE</a>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = 800, H = 300, GROUND = 240;
+
+let state = 'start';
+let score = 0, hiScore = 0, speed = 4.5, frame = 0;
+let particles = [];
+
+const player = { x: 120, y: GROUND - 64, w: 40, h: 64, vy: 0, onGround: true, legFrame: 0 };
+
+let obstacles = [];
+let clouds = [
+  { x: 80, y: 35, w: 90 },
+  { x: 320, y: 55, w: 70 },
+  { x: 580, y: 25, w: 110 },
+  { x: 720, y: 50, w: 80 },
+];
+let bgX = 0, houseOffset = 0;
+
+function jump() {
+  if (state === 'start') { state = 'playing'; return; }
+  if (state === 'dead') { reset(); return; }
+  if (player.onGround) {
+    player.vy = -15;
+    player.onGround = false;
+    spawnJumpParticles();
+  }
+}
+
+function reset() {
+  score = 0; speed = 4.5; frame = 0;
+  obstacles = [];
+  player.y = GROUND - player.h;
+  player.vy = 0; player.onGround = true;
+  particles = [];
+  state = 'playing';
+}
+
+function spawnJumpParticles() {
+  for (let i = 0; i < 6; i++) {
+    particles.push({
+      x: player.x + player.w / 2,
+      y: player.y + player.h,
+      vx: (Math.random() - 0.5) * 4,
+      vy: Math.random() * 2 + 1,
+      life: 1, maxLife: 1,
+      color: '#ff6b6b',
+      r: Math.random() * 4 + 2
+    });
+  }
+}
+
+function spawnDeathParticles() {
+  for (let i = 0; i < 20; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    particles.push({
+      x: player.x + player.w / 2,
+      y: player.y + player.h / 2,
+      vx: Math.cos(angle) * (Math.random() * 6 + 2),
+      vy: Math.sin(angle) * (Math.random() * 6 + 2),
+      life: 1, maxLife: 1,
+      color: `hsl(${Math.random() * 30 + 10}, 100%, 60%)`,
+      r: Math.random() * 6 + 3
+    });
+  }
+}
+
+const OBSTACLE_TYPES = [
+  { w: 28, h: 52, type: 'fence' },
+  { w: 36, h: 56, type: 'trash' },
+  { w: 52, h: 38, type: 'bush' },
+  { w: 58, h: 52, type: 'dfence' },
+  { w: 30, h: 70, type: 'tallpost' },
+];
+
+function spawnObstacle() {
+  const t = OBSTACLE_TYPES[Math.floor(Math.random() * OBSTACLE_TYPES.length)];
+  obstacles.push({ x: W + 30, y: GROUND - t.h, w: t.w, h: t.h, type: t.type });
+}
+
+function update() {
+  if (state !== 'playing') return;
+
+  frame++;
+  score++;
+  speed = 4.5 + score / 500;
+  player.legFrame = Math.floor(frame / 6) % 2;
+
+  // Gravity
+  player.vy += 0.72;
+  player.y += player.vy;
+  if (player.y >= GROUND - player.h) {
+    player.y = GROUND - player.h;
+    player.vy = 0;
+    player.onGround = true;
+  }
+
+  // Spawn obstacles
+  const minGap = Math.max(40, 75 - speed * 4);
+  if (frame % Math.floor(minGap) === 0 && Math.random() < 0.7) spawnObstacle();
+
+  // Move obstacles + clouds
+  for (const o of obstacles) o.x -= speed;
+  obstacles = obstacles.filter(o => o.x > -120);
+
+  bgX = (bgX - speed * 0.4);
+  houseOffset = (houseOffset - speed * 0.7);
+
+  for (const c of clouds) {
+    c.x -= 0.6;
+    if (c.x < -140) { c.x = W + 60; c.y = 20 + Math.random() * 50; }
+  }
+
+  // Particles
+  for (const p of particles) {
+    p.x += p.vx; p.y += p.vy;
+    p.vy += 0.3;
+    p.life -= 0.04;
+  }
+  particles = particles.filter(p => p.life > 0);
+
+  // Collision (with margin)
+  for (const o of obstacles) {
+    if (player.x + 8 < o.x + o.w - 5 &&
+        player.x + player.w - 8 > o.x + 5 &&
+        player.y + 10 < o.y + o.h &&
+        player.y + player.h - 4 > o.y + 5) {
+      if (score > hiScore) hiScore = score;
+      spawnDeathParticles();
+      state = 'dead';
+      return;
+    }
+  }
+}
+
+function drawCloud(c) {
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.beginPath();
+  ctx.ellipse(c.x, c.y, c.w / 2, 16, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(c.x - c.w * 0.28, c.y + 6, c.w * 0.28, 12, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(c.x + c.w * 0.25, c.y + 6, c.w * 0.27, 11, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawHouse(x, y, w, h, wall, roof) {
+  ctx.fillStyle = wall;
+  ctx.fillRect(x, y + h * 0.3, w, h * 0.7);
+  ctx.fillStyle = roof;
+  ctx.beginPath();
+  ctx.moveTo(x - 4, y + h * 0.3);
+  ctx.lineTo(x + w / 2, y);
+  ctx.lineTo(x + w + 4, y + h * 0.3);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#aed6f1';
+  ctx.fillRect(x + 7, y + h * 0.45, w * 0.27, h * 0.24);
+  ctx.fillRect(x + w * 0.58, y + h * 0.45, w * 0.27, h * 0.24);
+  ctx.fillStyle = '#795548';
+  ctx.fillRect(x + w * 0.36, y + h * 0.6, w * 0.28, h * 0.4);
+}
+
+function drawBackground() {
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND);
+  skyGrad.addColorStop(0, '#87CEEB');
+  skyGrad.addColorStop(1, '#c8e8f8');
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, W, GROUND);
+
+  for (const c of clouds) drawCloud(c);
+
+  const houseConfigs = [
+    { ox: 0,   y: GROUND - 90, w: 90, h: 90, wall: '#e8c49a', roof: '#c0392b' },
+    { ox: 200, y: GROUND - 78, w: 78, h: 78, wall: '#d4a96a', roof: '#7b4e2d' },
+    { ox: 380, y: GROUND - 95, w: 85, h: 95, wall: '#ecf0f1', roof: '#2c3e50' },
+    { ox: 580, y: GROUND - 85, w: 80, h: 85, wall: '#f0d9b5', roof: '#8e44ad' },
+  ];
+  const ho = houseOffset % W;
+  for (let i = -1; i <= 1; i++) {
+    for (const h of houseConfigs) {
+      drawHouse(ho + h.ox + i * W, h.y, h.w, h.h, h.wall, h.roof);
+    }
+  }
+
+  ctx.fillStyle = '#4a7c59';
+  ctx.fillRect(0, GROUND, W, 14);
+  ctx.fillStyle = '#3d6b4a';
+  ctx.fillRect(0, GROUND + 14, W, 8);
+  ctx.fillStyle = '#9E9E9E';
+  ctx.fillRect(0, GROUND + 22, W, 20);
+
+  const dashW = 50, dashH = 5, gapW = 50;
+  const cycle = dashW + gapW;
+  const bx = ((bgX * 1.5) % cycle + cycle) % cycle;
+  ctx.fillStyle = '#fff';
+  for (let x = bx - cycle; x < W + cycle; x += cycle) {
+    ctx.fillRect(x, GROUND + 27, dashW, dashH);
+  }
+  ctx.fillStyle = '#333';
+  ctx.fillRect(0, GROUND + 42, W, H - GROUND - 42);
+}
+
+function drawObstacle(o) {
+  switch (o.type) {
+    case 'fence':
+      ctx.fillStyle = '#7B3F00';
+      ctx.fillRect(o.x, o.y, 7, o.h);
+      ctx.fillRect(o.x + 21, o.y, 7, o.h);
+      ctx.fillRect(o.x, o.y + 8, o.w, 9);
+      ctx.fillRect(o.x, o.y + 28, o.w, 9);
+      ctx.fillStyle = '#5D2E0C';
+      ctx.fillRect(o.x + 1, o.y, 5, o.h);
+      break;
+    case 'trash':
+      ctx.fillStyle = '#555';
+      ctx.fillRect(o.x, o.y + 8, o.w, o.h - 8);
+      ctx.fillStyle = '#777';
+      ctx.fillRect(o.x - 3, o.y, o.w + 6, 12);
+      ctx.fillStyle = '#444';
+      ctx.fillRect(o.x + 7, o.y + 20, 5, o.h - 28);
+      ctx.fillRect(o.x + 24, o.y + 20, 5, o.h - 28);
+      ctx.fillStyle = '#888';
+      ctx.fillRect(o.x + 2, o.y + 14, o.w - 4, 4);
+      break;
+    case 'bush':
+      ctx.fillStyle = '#155a15';
+      ctx.beginPath();
+      ctx.ellipse(o.x + 26, o.y + 22, 30, 22, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#1e7b1e';
+      ctx.beginPath();
+      ctx.ellipse(o.x + 10, o.y + 24, 18, 16, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(o.x + 42, o.y + 24, 18, 16, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#228B22';
+      ctx.beginPath();
+      ctx.ellipse(o.x + 26, o.y + 15, 22, 16, 0, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    case 'dfence':
+      for (let i = 0; i < 2; i++) {
+        const fx = o.x + i * 30;
+        ctx.fillStyle = '#7B3F00';
+        ctx.fillRect(fx, o.y, 7, o.h);
+        ctx.fillRect(fx + 21, o.y, 7, o.h);
+        ctx.fillRect(fx, o.y + 8, 28, 9);
+        ctx.fillRect(fx, o.y + 28, 28, 9);
+      }
+      break;
+    case 'tallpost':
+      ctx.fillStyle = '#555';
+      ctx.fillRect(o.x, o.y, o.w, o.h);
+      ctx.fillStyle = '#ff4444';
+      ctx.fillRect(o.x - 4, o.y - 8, o.w + 8, 12);
+      ctx.fillStyle = '#333';
+      ctx.fillRect(o.x + 8, o.y + 10, o.w - 16, o.h - 10);
+      break;
+  }
+}
+
+function drawPlayer() {
+  const px = player.x, py = player.y;
+  const leg = player.legFrame;
+  const airborne = player.y < GROUND - player.h - 1;
+
+  // Shadow
+  const shadowW = Math.max(12, 36 - Math.max(0, GROUND - player.h - player.y) * 0.4);
+  const shadowY = GROUND;
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.beginPath();
+  ctx.ellipse(px + player.w / 2, shadowY + 3, shadowW, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Backpack
+  ctx.fillStyle = '#c0392b';
+  ctx.fillRect(px + 28, py + 16, 18, 30);
+  ctx.fillStyle = '#e74c3c';
+  ctx.fillRect(px + 30, py + 20, 14, 8);
+
+  // Body
+  ctx.fillStyle = '#3498db';
+  ctx.fillRect(px + 4, py + 18, 30, 36);
+
+  // Head
+  ctx.fillStyle = '#FDBCB4';
+  ctx.fillRect(px + 6, py, 28, 22);
+
+  // Hair
+  ctx.fillStyle = '#2c3e50';
+  ctx.fillRect(px + 6, py - 4, 28, 9);
+
+  // Eyes
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(px + 10, py + 5, 7, 7);
+  ctx.fillRect(px + 22, py + 5, 7, 7);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(px + 12, py + 7, 4, 4);
+  ctx.fillRect(px + 24, py + 7, 4, 4);
+
+  // Mouth
+  ctx.fillStyle = '#c0392b';
+  if (airborne) {
+    ctx.beginPath();
+    ctx.arc(px + 20, py + 17, 5, 0, Math.PI);
+    ctx.fill();
+  } else {
+    ctx.fillRect(px + 14, py + 15, leg ? 10 : 6, leg ? 4 : 3);
+  }
+
+  // Legs
+  ctx.fillStyle = '#2c3e50';
+  if (!airborne) {
+    if (leg === 0) {
+      ctx.fillRect(px + 6, py + 54, 12, 18);
+      ctx.fillRect(px + 20, py + 54, 12, 12);
+      ctx.fillStyle = '#1a252f';
+      ctx.fillRect(px + 6, py + 68, 14, 6);
+      ctx.fillRect(px + 20, py + 62, 14, 6);
+    } else {
+      ctx.fillRect(px + 6, py + 54, 12, 12);
+      ctx.fillRect(px + 20, py + 54, 12, 18);
+      ctx.fillStyle = '#1a252f';
+      ctx.fillRect(px + 6, py + 62, 14, 6);
+      ctx.fillRect(px + 20, py + 68, 14, 6);
+    }
+  } else {
+    ctx.fillRect(px + 5, py + 52, 12, 15);
+    ctx.fillRect(px + 20, py + 52, 12, 15);
+    ctx.fillStyle = '#1a252f';
+    ctx.fillRect(px + 4, py + 64, 14, 6);
+    ctx.fillRect(px + 19, py + 64, 14, 6);
+  }
+
+  // Arms
+  ctx.fillStyle = '#2980b9';
+  if (airborne) {
+    ctx.fillRect(px - 8, py + 16, 14, 8);
+    ctx.fillRect(px + 32, py + 16, 14, 8);
+  } else if (leg === 0) {
+    ctx.fillRect(px - 7, py + 18, 13, 8);
+    ctx.fillRect(px + 32, py + 26, 13, 8);
+  } else {
+    ctx.fillRect(px - 7, py + 26, 13, 8);
+    ctx.fillRect(px + 32, py + 18, 13, 8);
+  }
+}
+
+function drawParticles() {
+  for (const p of particles) {
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawHUD() {
+  ctx.fillStyle = '#000';
+  ctx.font = 'bold 18px Courier New';
+  ctx.fillText('Score: ' + score, 10, 25);
+  ctx.fillText('Best:  ' + hiScore, 10, 47);
+
+  const spd = Math.floor(speed * 10) / 10;
+  ctx.textAlign = 'right';
+  ctx.fillText('Speed: ' + spd.toFixed(1), W - 10, 25);
+  ctx.textAlign = 'left';
+
+}
+
+function drawOverlay(title, sub1, sub2, color) {
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = color;
+  ctx.font = 'bold 40px Courier New';
+  ctx.fillText(title, W / 2, H / 2 - 35);
+  ctx.fillStyle = '#fff';
+  ctx.font = '21px Courier New';
+  ctx.fillText(sub1, W / 2, H / 2 + 8);
+  if (sub2) { ctx.font = '16px Courier New'; ctx.fillStyle = '#aaa'; ctx.fillText(sub2, W / 2, H / 2 + 38); }
+  ctx.textAlign = 'left';
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  drawBackground();
+  for (const o of obstacles) drawObstacle(o);
+  drawParticles();
+  if (state !== 'dead') drawPlayer();
+  drawHUD();
+
+  if (state === 'start') {
+    drawOverlay('RUNNING AWAY', 'SPACE / TAP to Start!', 'Jump over everything!', '#ff6b6b');
+  }
+  if (state === 'dead') {
+    drawParticles();
+    drawOverlay('CAUGHT!',
+      'Score: ' + score + '   Best: ' + hiScore,
+      'SPACE / TAP to Try Again', '#ff4444');
+  }
+}
+
+function loop() { update(); draw(); requestAnimationFrame(loop); }
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' || e.code === 'ArrowUp') { e.preventDefault(); jump(); }
+});
+canvas.addEventListener('click', jump);
+canvas.addEventListener('touchstart', e => { e.preventDefault(); jump(); }, { passive: false });
+
+loop();
+</script>
+</body>
+</html>

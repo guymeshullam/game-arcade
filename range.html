@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shooting Range</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0a0a1a; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; font-family: 'Courier New', monospace; color: #fff; }
+    h1 { color: #4CAF50; text-shadow: 0 0 15px #4CAF50; font-size: 1.8rem; letter-spacing: 4px; margin-bottom: 12px; }
+    canvas { display: block; border: 2px solid #4CAF50; box-shadow: 0 0 25px #4CAF50; max-width: 100%; cursor: none; }
+    .info { color: #666; font-size: 0.82rem; margin-top: 8px; letter-spacing: 2px; }
+    .back { margin-top: 14px; padding: 10px 24px; background: transparent; border: 2px solid #4CAF50; color: #4CAF50; font-family: 'Courier New', monospace; font-size: 0.9rem; letter-spacing: 2px; cursor: pointer; text-decoration: none; transition: all 0.2s; }
+    .back:hover { background: #4CAF50; color: #000; }
+  </style>
+</head>
+<body>
+  <h1>&#127919; SHOOTING RANGE</h1>
+  <canvas id="c" width="800" height="520"></canvas>
+  <p class="info">Mouse to aim | Click to shoot | R to reload</p>
+  <a href="index.html" class="back">&#8592; TRUE GUY'S ARCADE</a>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = 800, H = 520;
+
+// Range layout - perspective view looking down range
+const BENCH_Y = 400;
+const HORIZON_Y = 160;
+const TARGET_CONFIGS = [
+  { dist: 10,  scale: 1.0,  x: 200, y: 255, pts: [1,2,3,4,5,6,7,8,9,10] },
+  { dist: 25,  scale: 0.7,  x: 400, y: 235, pts: [1,2,3,4,5,6,7,8,9,10] },
+  { dist: 50,  scale: 0.45, x: 600, y: 220, pts: [1,2,3,4,5,6,7,8,9,10] },
+];
+
+let state = 'start';
+let totalScore = 0, roundScore = 0;
+let ammo = 7, maxAmmo = 7;
+let magazine = 3; // rounds (magazines)
+let reloading = false, reloadTimer = 0;
+let round = 1, totalRounds = 3;
+let shots = []; // bullet holes
+let lastShotHoles = [];
+let recoil = { x: 0, y: 0 };
+let sway = { x: 0, y: 0, vx: 0.4, vy: 0.3, t: 0 };
+let flash = 0;
+let frame = 0;
+let roundMsg = '', roundMsgTimer = 0;
+
+const mouse = { x: W / 2, y: H / 2 };
+canvas.addEventListener('mousemove', e => {
+  const r = canvas.getBoundingClientRect();
+  mouse.x = (e.clientX - r.left) * (W / r.width);
+  mouse.y = (e.clientY - r.top) * (H / r.height);
+});
+canvas.addEventListener('click', e => {
+  e.preventDefault();
+  if (state === 'start' || state === 'end') { startGame(); return; }
+  if (state === 'playing') fire();
+});
+document.addEventListener('keydown', e => {
+  if (e.code === 'KeyR' && !reloading && ammo < maxAmmo) startReload();
+  if (e.code === 'Space') { e.preventDefault(); if (state === 'start' || state === 'end') startGame(); }
+});
+
+function startGame() {
+  totalScore = 0; roundScore = 0; round = 1;
+  ammo = maxAmmo; magazine = totalRounds;
+  shots = []; reloading = false; reloadTimer = 0;
+  state = 'playing';
+  roundMsg = 'ROUND 1 — 10m TARGET'; roundMsgTimer = 100;
+}
+
+function startReload() {
+  if (magazine <= 0) return;
+  reloading = true; reloadTimer = 90;
+}
+
+function getAimPoint() {
+  return {
+    x: mouse.x + recoil.x + sway.x,
+    y: mouse.y + recoil.y + sway.y,
+  };
+}
+
+function getTargetConfig(round2) {
+  return TARGET_CONFIGS[Math.min(round2 - 1, TARGET_CONFIGS.length - 1)];
+}
+
+function scoreShot(ax, ay, tc) {
+  const scale = tc.scale;
+  const ringR = [48*scale, 42*scale, 36*scale, 30*scale, 24*scale, 18*scale, 13*scale, 9*scale, 6*scale, 3*scale];
+  const dx = ax - tc.x, dy = ay - tc.y;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  for (let i = 0; i < ringR.length; i++) {
+    if (dist <= ringR[i]) return 10 - i;
+  }
+  return 0;
+}
+
+function fire() {
+  if (ammo <= 0 || reloading) { if (!reloading && magazine > 0) startReload(); return; }
+  const aim = getAimPoint();
+  const tc = getTargetConfig(round);
+
+  const pts = scoreShot(aim.x, aim.y, tc);
+  roundScore += pts;
+  ammo--;
+
+  // Bullet hole
+  const ringR = [48*tc.scale, 42*tc.scale, 36*tc.scale, 30*tc.scale, 24*tc.scale, 18*tc.scale, 13*tc.scale, 9*tc.scale, 6*tc.scale, 3*tc.scale];
+  const hitR = ringR[0];
+  const onTarget = Math.hypot(aim.x - tc.x, aim.y - tc.y) <= hitR + 10;
+
+  shots.push({ x: aim.x, y: aim.y, pts, round: round, onTarget });
+  lastShotHoles.push({ x: aim.x, y: aim.y, pts, life: 120 });
+
+  // Recoil
+  recoil.y -= 8 + Math.random() * 6;
+  recoil.x += (Math.random() - 0.5) * 6;
+  flash = 8;
+
+  // Check if magazine empty
+  if (ammo <= 0) {
+    totalScore += roundScore;
+    if (round < totalRounds) {
+      setTimeout(() => {
+        round++;
+        roundScore = 0;
+        ammo = maxAmmo;
+        magazine--;
+        reloading = false;
+        shots = shots.filter(s => s.round === round); // clear old holes
+        roundMsg = 'ROUND ' + round + ' — ' + TARGET_CONFIGS[round-1].dist + 'm TARGET';
+        roundMsgTimer = 120;
+      }, 1500);
+    } else {
+      setTimeout(() => { totalScore += 0; state = 'end'; }, 1500);
+    }
+  }
+}
+
+function update() {
+  if (state !== 'playing') return;
+  frame++;
+
+  // Sway (natural hand movement)
+  sway.t += 0.02;
+  sway.x = Math.sin(sway.t * 0.7) * 3.5 + Math.sin(sway.t * 1.3) * 2;
+  sway.y = Math.cos(sway.t * 0.5) * 2.5 + Math.cos(sway.t * 1.1) * 1.5;
+
+  // Recoil recovery
+  recoil.x *= 0.82; recoil.y *= 0.78;
+  if (Math.abs(recoil.x) < 0.01) recoil.x = 0;
+  if (Math.abs(recoil.y) < 0.01) recoil.y = 0;
+
+  if (flash > 0) flash--;
+
+  // Reload timer
+  if (reloading) {
+    reloadTimer--;
+    if (reloadTimer <= 0) {
+      ammo = maxAmmo; magazine--;
+      reloading = false;
+    }
+  }
+
+  // Round message
+  if (roundMsgTimer > 0) roundMsgTimer--;
+
+  // Last shot indicators
+  for (const h of lastShotHoles) h.life--;
+  lastShotHoles = lastShotHoles.filter(h => h.life > 0);
+}
+
+function drawRange() {
+  // Background (range interior)
+  ctx.fillStyle = '#2a2a2a'; ctx.fillRect(0, 0, W, H);
+
+  // Floor perspective
+  const floorGrad = ctx.createLinearGradient(0, HORIZON_Y, 0, H);
+  floorGrad.addColorStop(0, '#1a1a1a'); floorGrad.addColorStop(1, '#3a3020');
+  ctx.fillStyle = floorGrad;
+  ctx.beginPath();
+  ctx.moveTo(0, HORIZON_Y); ctx.lineTo(W, HORIZON_Y);
+  ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath(); ctx.fill();
+
+  // Floor lines (perspective grid)
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1;
+  const VP = { x: W/2, y: HORIZON_Y };
+  for (let i = 0; i <= 12; i++) {
+    const fx = (i / 12) * W;
+    ctx.beginPath(); ctx.moveTo(VP.x + (fx - VP.x) * 0.15, HORIZON_Y + 2); ctx.lineTo(fx, H); ctx.stroke();
+  }
+  for (let d = 0; d <= 5; d++) {
+    const t = d / 5;
+    const y = HORIZON_Y + (H - HORIZON_Y) * (t * t);
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  // Ceiling
+  ctx.fillStyle = '#1e1e1e'; ctx.fillRect(0, 0, W, HORIZON_Y);
+
+  // Ceiling lights
+  for (let lx = 80; lx < W; lx += 160) {
+    const grad = ctx.createRadialGradient(lx, 0, 0, lx, 60, 120);
+    grad.addColorStop(0, 'rgba(255,240,200,0.15)');
+    grad.addColorStop(1, 'rgba(255,240,200,0)');
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, W, HORIZON_Y);
+    ctx.fillStyle = '#ffe8b0';
+    ctx.fillRect(lx - 30, 0, 60, 8);
+  }
+
+  // Lane dividers (walls going to horizon)
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 2;
+  [200, 400, 600].forEach(lx => {
+    ctx.beginPath();
+    ctx.moveTo(VP.x + (lx - VP.x) * 0.1, HORIZON_Y);
+    ctx.lineTo(lx, H);
+    ctx.stroke();
+  });
+
+  // Shooting bench
+  ctx.fillStyle = '#4a3520';
+  ctx.fillRect(0, BENCH_Y, W, H - BENCH_Y);
+  ctx.fillStyle = '#5a4530';
+  ctx.fillRect(0, BENCH_Y, W, 12);
+  // Bench edge highlight
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  ctx.fillRect(0, BENCH_Y, W, 4);
+
+  // Lane numbers
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.font = '14px Courier New';
+  ctx.textAlign = 'center';
+  TARGET_CONFIGS.forEach((tc, i) => {
+    ctx.fillText('LANE ' + (i+1) + ' — ' + tc.dist + 'm', tc.x, BENCH_Y + 30);
+  });
+  ctx.textAlign = 'left';
+}
+
+function drawTargetStand(tc) {
+  const s = tc.scale;
+  // Stand pole
+  ctx.fillStyle = '#555';
+  ctx.fillRect(tc.x - 4*s, tc.y + 50*s, 8*s, 80 + (tc.y - 200));
+
+  // Target paper backing
+  ctx.fillStyle = '#f5f0e8';
+  ctx.fillRect(tc.x - 55*s, tc.y - 70*s, 110*s, 140*s);
+
+  // Shot holes on target paper
+  for (const h of shots) {
+    if (h.round !== round) continue;
+    const hx = h.x, hy = h.y;
+    if (Math.abs(hx - tc.x) < 55*s + 5 && Math.abs(hy - tc.y) < 70*s + 5) {
+      ctx.fillStyle = '#000';
+      ctx.beginPath(); ctx.arc(hx, hy, 3, 0, Math.PI*2); ctx.fill();
+      // Hole tear effect
+      ctx.fillStyle = '#888';
+      ctx.beginPath(); ctx.arc(hx, hy, 2, 0, Math.PI*2); ctx.fill();
+    }
+  }
+
+  // Target rings (10 rings, standard ISSF target style)
+  const ringColors = ['#fff','#fff','#fff','#fff','#fff','#000','#000','#000','#000','#fff'];
+  const ringBGs = ['#fff','#fff','#fff','#fff','#fff','#111','#111','#111','#111','#f00'];
+  const ringR2 = [48,42,36,30,24,18,13,9,6,3];
+
+  for (let i = 0; i < ringR2.length; i++) {
+    const r2 = ringR2[i] * s;
+    ctx.fillStyle = i >= 5 ? (i >= 9 ? '#f00' : '#111') : '#fff';
+    ctx.beginPath(); ctx.arc(tc.x, tc.y, r2, 0, Math.PI*2); ctx.fill();
+    if (i < ringR2.length - 1) {
+      ctx.strokeStyle = i >= 5 ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.3)';
+      ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.arc(tc.x, tc.y, r2, 0, Math.PI*2); ctx.stroke();
+    }
+  }
+
+  // Ring numbers
+  ctx.font = `${9*s}px Courier New`;
+  ctx.textAlign = 'center';
+  const numPositions = [48,42,36,30,24,18];
+  const nums = ['1','2','3','4','5','6'];
+  for (let i = 0; i < numPositions.length; i++) {
+    const r2 = numPositions[i] * s;
+    ctx.fillStyle = i >= 5 ? '#fff' : '#000';
+    ctx.fillText(nums[i], tc.x + r2 - 6*s, tc.y + 4*s);
+    ctx.fillText(nums[i], tc.x - r2 + 6*s, tc.y + 4*s);
+  }
+  ctx.font = `${11*s}px Arial`;
+  ctx.fillStyle = '#fff';
+  ctx.fillText('10', tc.x, tc.y + 3*s);
+  ctx.textAlign = 'left';
+
+  // Current round indicator
+  if (round - 1 === TARGET_CONFIGS.indexOf(tc)) {
+    ctx.strokeStyle = '#4CAF50'; ctx.lineWidth = 2;
+    ctx.strokeRect(tc.x - 58*s, tc.y - 73*s, 116*s, 146*s);
+    ctx.shadowBlur = 0;
+  }
+}
+
+function drawCrosshair(aim) {
+  const x = aim.x, y = aim.y;
+  const col = reloading ? 'rgba(255,120,0,0.8)' : 'rgba(50,255,80,0.9)';
+
+  // Outer circle
+  ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(x, y, 22, 0, Math.PI*2); ctx.stroke();
+
+  // Inner dot
+  ctx.fillStyle = col;
+  ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI*2); ctx.fill();
+
+  // Cross lines (with gap for center)
+  const gap = 6, len = 14;
+  ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(x - gap - len, y); ctx.lineTo(x - gap, y);
+  ctx.moveTo(x + gap, y); ctx.lineTo(x + gap + len, y);
+  ctx.moveTo(x, y - gap - len); ctx.lineTo(x, y - gap);
+  ctx.moveTo(x, y + gap); ctx.lineTo(x, y + gap + len);
+  ctx.stroke();
+}
+
+function drawGun() {
+  // Draw gun at bottom of screen
+  const gx = W * 0.45 + recoil.x * 0.4;
+  const gy = BENCH_Y - 20 + recoil.y * 0.4;
+
+  // Gun grip/frame
+  ctx.fillStyle = '#2a2a2a';
+  ctx.fillRect(gx, gy, 180, 55);
+  ctx.fillRect(gx + 60, gy + 55, 28, 35);
+
+  // Slide
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(gx + 10, gy - 8, 140, 30);
+
+  // Barrel
+  ctx.fillRect(gx + 140, gy - 6, 50, 18);
+
+  // Sights
+  ctx.fillStyle = '#555';
+  ctx.fillRect(gx + 150, gy - 15, 6, 10);
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(gx + 152, gy - 14, 2, 8);
+
+  // Trigger guard
+  ctx.strokeStyle = '#2a2a2a'; ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(gx + 80, gy + 40, 25, 0, Math.PI); ctx.stroke();
+
+  // Trigger
+  ctx.fillStyle = '#888';
+  ctx.fillRect(gx + 72, gy + 18, 8, 20);
+
+  // Muzzle flash
+  if (flash > 0) {
+    ctx.globalAlpha = flash / 8;
+    ctx.fillStyle = '#ffe060';
+    ctx.beginPath(); ctx.arc(gx + 190, gy + 3, 12 + Math.random()*5, 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // Magazine
+  ctx.fillStyle = '#333';
+  ctx.fillRect(gx + 58, gy + 88, 22, 10);
+}
+
+function drawHUD() {
+  // Ammo dots
+  for (let i = 0; i < maxAmmo; i++) {
+    ctx.fillStyle = i < ammo ? '#4CAF50' : '#333';
+    ctx.fillRect(10 + i * 18, H - 28, 12, 22);
+    ctx.strokeStyle = '#555'; ctx.lineWidth = 1;
+    ctx.strokeRect(10 + i * 18, H - 28, 12, 22);
+  }
+  ctx.fillStyle = '#aaa'; ctx.font = '12px Courier New';
+  ctx.fillText('MAG: ' + magazine, maxAmmo * 18 + 20, H - 12);
+
+  if (reloading) {
+    const pct = 1 - reloadTimer / 90;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(W/2 - 80, H - 38, 160, 22);
+    ctx.fillStyle = '#ff9f43'; ctx.fillRect(W/2 - 78, H - 36, 156 * pct, 18);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 13px Courier New'; ctx.textAlign = 'center';
+    ctx.fillText('RELOADING...', W/2, H - 22); ctx.textAlign = 'left';
+  }
+
+  // Score
+  ctx.fillStyle = '#4CAF50'; ctx.font = 'bold 18px Courier New';
+  ctx.textAlign = 'right';
+  ctx.fillText('SCORE: ' + (totalScore + roundScore), W - 10, 28);
+  ctx.fillStyle = '#888'; ctx.font = '13px Courier New';
+  ctx.fillText('ROUND ' + round + ' / ' + totalRounds, W - 10, 48);
+  ctx.textAlign = 'left';
+
+  // Last shot indicator
+  for (const h of lastShotHoles) {
+    if (h.pts === 0) continue;
+    const a = h.life / 120;
+    ctx.globalAlpha = a;
+    ctx.fillStyle = h.pts >= 8 ? '#4CAF50' : h.pts >= 5 ? '#ff9f43' : '#ff4444';
+    ctx.font = `bold ${16 + (1 - a) * 10}px Courier New`;
+    ctx.textAlign = 'center';
+    ctx.fillText('+' + h.pts, h.x, h.y - 15 - (1-a)*20);
+    ctx.textAlign = 'left';
+    ctx.globalAlpha = 1;
+  }
+
+  // Round message
+  if (roundMsgTimer > 0) {
+    ctx.globalAlpha = Math.min(1, roundMsgTimer / 40);
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(W/2-200, H/2-30, 400, 50);
+    ctx.fillStyle = '#4CAF50'; ctx.font = 'bold 22px Courier New';
+    ctx.textAlign = 'center';
+    ctx.fillText(roundMsg, W/2, H/2 + 5);
+    ctx.textAlign = 'left';
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawOverlay(title, sub, color, sub2) {
+  ctx.fillStyle = 'rgba(0,0,0,0.78)'; ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = color; ctx.font = 'bold 48px Courier New'; ctx.fillText(title, W/2, H/2 - 40);
+  ctx.fillStyle = '#fff'; ctx.font = '21px Courier New'; ctx.fillText(sub, W/2, H/2 + 10);
+  if (sub2) { ctx.fillStyle = '#aaa'; ctx.font = '15px Courier New'; ctx.fillText(sub2, W/2, H/2 + 44); }
+  ctx.textAlign = 'left';
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  drawRange();
+  TARGET_CONFIGS.forEach(tc => drawTargetStand(tc));
+  drawGun();
+
+  const aim = getAimPoint();
+  if (state === 'playing') drawCrosshair(aim);
+
+  drawHUD();
+
+  if (state === 'start') drawOverlay('SHOOTING RANGE', 'Click to shoot | R to reload | 3 rounds', '#4CAF50', 'Aim steady — click to fire');
+  if (state === 'end') {
+    const maxPossible = maxAmmo * totalRounds * 10;
+    const pct = Math.round(totalScore / maxPossible * 100);
+    const grade = pct >= 90 ? 'EXPERT' : pct >= 75 ? 'MARKSMAN' : pct >= 50 ? 'NOVICE' : 'RECRUIT';
+    drawOverlay('RANGE CLEAR', 'Score: ' + totalScore + '/' + maxPossible + '  (' + pct + '%)  — ' + grade, '#4CAF50', 'Click or SPACE to shoot again');
+  }
+}
+
+function loop() { update(); draw(); requestAnimationFrame(loop); }
+loop();
+</script>
+</body>
+</html>
