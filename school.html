@@ -297,13 +297,16 @@ document.getElementById('ov').addEventListener('click', function() {
   document.getElementById('c').requestPointerLock();
 });
 document.getElementById('endscreen').addEventListener('click', function() {
-  this.style.display = 'none';
+  var self = this;
   resetGame();
   gstate = 'playing';
-  document.getElementById('c').requestPointerLock();
+  self.style.display = 'none';
+  setTimeout(function() {
+    document.getElementById('c').requestPointerLock();
+  }, 120);
 });
 document.getElementById('c').addEventListener('click', function() {
-  if (gstate === 'playing') this.requestPointerLock();
+  if (gstate === 'playing' && !locked) this.requestPointerLock();
 });
 
 // ── HUD refs ─────────────────────────────────────────────────────
@@ -325,7 +328,9 @@ function popup(txt, col) {
 
 function updateSlots() {
   for (var i = 0; i < 3; i++) {
-    if (collected[i]) document.getElementById('s' + i).classList.add('got');
+    var el = document.getElementById('s' + i);
+    if (collected[i]) el.classList.add('got');
+    else el.classList.remove('got');
   }
 }
 
@@ -342,9 +347,9 @@ function hits(nx, nz, r) {
 
 // ── Reset ─────────────────────────────────────────────────────────
 function resetGame() {
-  PL.x = 0; PL.z = 46; PL.yaw = Math.PI; PL.pitch = 0; PL.bob = 0;
-  P.x = 0; P.z = 48; P.alert = 0; P.speed = 2.0;
-  pursuer.position.set(0, 0, 48);
+  PL.x = 0; PL.z = 44; PL.yaw = Math.PI; PL.pitch = 0; PL.bob = 0;
+  P.x = 0; P.z = -44; P.alert = 0; P.speed = 2.0; P.patrolDir = 1;
+  pursuer.position.set(0, 0, -44);
   collected = [false, false, false]; colCount = 0;
   COLS.forEach(function(c) { c.done = false; c.mesh.visible = true; c.light.intensity = 1.8; });
   updateSlots();
@@ -465,8 +470,6 @@ function loop(t) {
     // Chase
     if (pDist > 0.5) {
       var ql = pDist;
-      var qx = PURSUER_MOVE(P.x + (pdx/ql)*P.speed*dt, P.z, 0.55);
-      var qz = PURSUER_MOVE(P.x, P.z + (pdz/ql)*P.speed*dt, 0.55);
       if (!hits(P.x + (pdx/ql)*P.speed*dt, P.z, 0.55)) P.x += (pdx/ql)*P.speed*dt;
       if (!hits(P.x, P.z + (pdz/ql)*P.speed*dt, 0.55)) P.z += (pdz/ql)*P.speed*dt;
       P.angle = toPA;
@@ -540,9 +543,6 @@ function loop(t) {
 
   renderer.render(scene, camera);
 }
-
-// Dummy function to suppress stray reference
-function PURSUER_MOVE() {}
 
 window.addEventListener('resize', function() {
   W = window.innerWidth; H = window.innerHeight;
