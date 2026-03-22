@@ -75,7 +75,7 @@
 <div id="endscreen">
   <h2 id="endtitle"></h2>
   <p id="endmsg"></p>
-  <div class="pr">CLICK TO PLAY AGAIN</div>
+  <div class="pr">PRESS ANY KEY OR CLICK TO PLAY AGAIN</div>
 </div>
 
 <a href="index.html" class="back">← TRUE GUY'S ARCADE</a>
@@ -278,8 +278,19 @@ var PL = { x: 0, z: 46, yaw: Math.PI, pitch: 0, bob: 0, sprinting: false,
 var keys = {};
 var mdx = 0, mdy = 0, locked = false;
 var gstate = 'start'; // start / playing / dead / win
+var canRestart = false;
+
+function doRestart() {
+  if (!canRestart) return;
+  canRestart = false;
+  document.getElementById('endscreen').style.display = 'none';
+  resetGame();
+  gstate = 'playing';
+  document.getElementById('c').requestPointerLock();
+}
 
 document.addEventListener('keydown', function(e) {
+  if (gstate === 'dead' || gstate === 'win') { doRestart(); return; }
   keys[e.code] = true;
   if (e.code === 'Escape' && locked) document.exitPointerLock();
   if (e.code === 'Space' && gstate === 'playing' && PL.onGround && !PL.crouching) {
@@ -297,21 +308,12 @@ document.addEventListener('pointerlockchange', function() {
   locked = document.pointerLockElement === document.getElementById('c');
 });
 
-// Start / restart via overlay click
 document.getElementById('ov').addEventListener('click', function() {
   this.style.display = 'none';
   gstate = 'playing';
   document.getElementById('c').requestPointerLock();
 });
-document.getElementById('endscreen').addEventListener('click', function() {
-  var self = this;
-  resetGame();
-  gstate = 'playing';
-  self.style.display = 'none';
-  setTimeout(function() {
-    document.getElementById('c').requestPointerLock();
-  }, 120);
-});
+document.getElementById('endscreen').addEventListener('click', doRestart);
 document.getElementById('c').addEventListener('click', function() {
   if (gstate === 'playing' && !locked) this.requestPointerLock();
 });
@@ -463,14 +465,15 @@ function loop(t) {
     var exdx = PL.x, exdz = PL.z - (-HL + 1.5);
     if (Math.sqrt(exdx*exdx + exdz*exdz) < 3.5) {
       gstate = 'win';
-      var es = document.getElementById('endscreen');
+      canRestart = false;
       document.getElementById('endtitle').textContent = 'ESCAPED.';
       document.getElementById('endtitle').style.color = '#00ff66';
       document.getElementById('endtitle').style.textShadow = '0 0 40px #00ff66';
       document.getElementById('endmsg').textContent = 'YOU GOT OUT ALIVE.';
       document.getElementById('endmsg').style.color = '#006633';
-      es.style.display = 'flex';
+      document.getElementById('endscreen').style.display = 'flex';
       if (locked) document.exitPointerLock();
+      setTimeout(function() { canRestart = true; }, 600);
       return;
     }
   }
@@ -528,15 +531,16 @@ function loop(t) {
   // ── Caught
   if (pDist < 1.2) {
     gstate = 'dead';
-    var es2 = document.getElementById('endscreen');
+    canRestart = false;
     document.getElementById('endtitle').textContent = 'CAUGHT.';
     document.getElementById('endtitle').style.color = '#ff0000';
     document.getElementById('endtitle').style.textShadow = '0 0 40px #ff0000, 0 0 80px #880000';
     document.getElementById('endmsg').textContent = 'HE FOUND YOU.';
     document.getElementById('endmsg').style.color = '#880000';
-    es2.style.background = '#000';
-    es2.style.display = 'flex';
+    document.getElementById('endscreen').style.background = '#000';
+    document.getElementById('endscreen').style.display = 'flex';
     if (locked) document.exitPointerLock();
+    setTimeout(function() { canRestart = true; }, 600);
     return;
   }
 
