@@ -64,7 +64,8 @@
   <div class="sub">HE KNOWS YOU KNOW</div>
   <div class="cl">
     <b>WASD</b> — Move &nbsp;|&nbsp; <b>MOUSE</b> — Look<br>
-    <b>SHIFT</b> — Sprint (louder — he hears you)<br>
+    <b>SHIFT</b> — Sprint (louder) &nbsp;|&nbsp; <b>CTRL</b> — Crouch (quieter)<br>
+    <b>SPACE</b> — Jump<br>
     Find all 3 items hidden in classrooms<br>
     Reach the <b style="color:#00ff66;">EXIT</b> at the far end
   </div>
@@ -270,7 +271,8 @@ scene.add(pursuer);
 var P = { x: 0, z: 48, speed: 2.0, alert: 0, angle: 0, patrolDir: -1 };
 
 // ── Player state ────────────────────────────────────────────────
-var PL = { x: 0, z: 46, yaw: Math.PI, pitch: 0, bob: 0, sprinting: false };
+var PL = { x: 0, z: 46, yaw: Math.PI, pitch: 0, bob: 0, sprinting: false,
+           camY: 1.72, vy: 0, onGround: true, crouching: false };
 
 // ── Input ────────────────────────────────────────────────────────
 var keys = {};
@@ -280,6 +282,11 @@ var gstate = 'start'; // start / playing / dead / win
 document.addEventListener('keydown', function(e) {
   keys[e.code] = true;
   if (e.code === 'Escape' && locked) document.exitPointerLock();
+  if (e.code === 'Space' && gstate === 'playing' && PL.onGround && !PL.crouching) {
+    e.preventDefault();
+    PL.vy = 0.14;
+    PL.onGround = false;
+  }
 });
 document.addEventListener('keyup', function(e) { keys[e.code] = false; });
 document.addEventListener('mousemove', function(e) {
@@ -348,6 +355,7 @@ function hits(nx, nz, r) {
 // ── Reset ─────────────────────────────────────────────────────────
 function resetGame() {
   PL.x = 0; PL.z = 44; PL.yaw = Math.PI; PL.pitch = 0; PL.bob = 0;
+  PL.camY = 1.72; PL.vy = 0; PL.onGround = true; PL.crouching = false;
   P.x = 0; P.z = -44; P.alert = 0; P.speed = 2.0; P.patrolDir = 1;
   pursuer.position.set(0, 0, -44);
   collected = [false, false, false]; colCount = 0;
@@ -373,9 +381,13 @@ function loop(t) {
   PL.pitch  = Math.max(-1.05, Math.min(1.05, PL.pitch - mdy * sens));
   mdx = 0; mdy = 0;
 
+  // ── Crouch
+  PL.crouching = !!(keys['ControlLeft'] || keys['ControlRight']);
+  var targetY = PL.crouching ? 0.9 : 1.72;
+
   // ── Movement
-  PL.sprinting = !!(keys['ShiftLeft'] || keys['ShiftRight']);
-  var spd = (PL.sprinting ? 5.8 : 3.6) * dt;
+  PL.sprinting = !!(keys['ShiftLeft'] || keys['ShiftRight']) && !PL.crouching;
+  var spd = (PL.crouching ? 1.8 : PL.sprinting ? 5.8 : 3.6) * dt;
   var fx = 0, fz = 0, moving = false;
   if (keys['KeyW'] || keys['ArrowUp'])    { fx += Math.sin(PL.yaw); fz += Math.cos(PL.yaw); moving = true; }
   if (keys['KeyS'] || keys['ArrowDown'])  { fx -= Math.sin(PL.yaw); fz -= Math.cos(PL.yaw); moving = true; }
@@ -386,12 +398,29 @@ function loop(t) {
     var nx = PL.x + fx * spd, nz = PL.z + fz * spd;
     if (!hits(nx, PL.z)) PL.x = nx;
     if (!hits(PL.x, nz)) PL.z = nz;
-    PL.bob += dt * (PL.sprinting ? 0.22 : 0.13);
+    PL.bob += dt * (PL.sprinting ? 0.22 : PL.crouching ? 0.06 : 0.13);
+  }
+
+  // ── Jump / gravity
+  if (!PL.onGround) {
+    PL.vy -= 0.008 * dt;
+    targetY += 0;
+    var newY = PL.camY + PL.vy * dt * 60;
+    var groundY = PL.crouching ? 0.9 : 1.72;
+    if (newY <= groundY) {
+      newY = groundY;
+      PL.vy = 0;
+      PL.onGround = true;
+    }
+    PL.camY = newY;
+  } else {
+    // Smooth crouch transition
+    PL.camY += (targetY - PL.camY) * 0.18;
   }
 
   // ── Camera
-  var bob = moving ? Math.sin(PL.bob * 10) * 0.055 : 0;
-  camera.position.set(PL.x, 1.72 + bob, PL.z);
+  var bob = moving && PL.onGround ? Math.sin(PL.bob * 10) * 0.055 : 0;
+  camera.position.set(PL.x, PL.camY + bob, PL.z);
   camera.rotation.order = 'YXZ';
   camera.rotation.y = PL.yaw;
   camera.rotation.x = PL.pitch;
@@ -450,7 +479,7 @@ function loop(t) {
   var pdx = PL.x - P.x, pdz = PL.z - P.z;
   var pDist = Math.sqrt(pdx*pdx + pdz*pdz);
 
-  var noiseR = (PL.sprinting && moving) ? 16 : 5;
+  var noiseR = PL.crouching ? 2 : (PL.sprinting && moving) ? 16 : 5;
   var sightR = 22;
   var toPA   = Math.atan2(pdx, pdz);
   var adiff  = Math.abs(((toPA - P.angle) % (Math.PI*2) + Math.PI*3) % (Math.PI*2) - Math.PI);
